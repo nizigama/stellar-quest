@@ -14,8 +14,8 @@ import (
 const (
 	trustingAccountPublicKey  string = "GD4RJTVWN55XW4SLC4GUBIMQVEXE6TV455UGIFTJH6MYJ5PGP7JLLJ6B"
 	trustingAccountSecretKey  string = "SAWAVABGVSR2KZFZWRRNBI4RZ7LK7ORG5E3YXLR5KBFJDAQJ4JLJ6SLM"
-	assetCode                 string = "TKN"
-	trustLimit                string = "12"
+	assetCode                 string = "WEIRTKN"
+	trustLimit                string = "18"
 	minimumCreateAccountTxFee string = "10"
 )
 
@@ -44,11 +44,11 @@ func getTrustingAccountKeypair() *keypair.Full {
 	return kp
 }
 
-func createSignedTransaction(issuerAddr string, trustingAccount horizon.Account) (*txnbuild.Transaction, error) {
+func createSignedTransaction(issuerKeypair *keypair.Full, trustingAccount horizon.Account) (*txnbuild.Transaction, error) {
 
 	asset, _ := txnbuild.CreditAsset{
 		Code:   assetCode,
-		Issuer: issuerAddr,
+		Issuer: issuerKeypair.Address(),
 	}.ToChangeTrustAsset()
 
 	op := txnbuild.ChangeTrust{
@@ -56,8 +56,21 @@ func createSignedTransaction(issuerAddr string, trustingAccount horizon.Account)
 		Limit: trustLimit,
 	}
 
+	sentAsset, err := asset.ToAsset()
+
+	if err != nil {
+		return nil, err
+	}
+
+	sendAssetsOp := txnbuild.Payment{
+		Destination:   trustingAccount.AccountID,
+		Asset:         sentAsset,
+		Amount:        "18",
+		SourceAccount: issuerKeypair.Address(),
+	}
+
 	createAccountOp := txnbuild.CreateAccount{
-		Destination: issuerAddr,
+		Destination: issuerKeypair.Address(),
 		Amount:      minimumCreateAccountTxFee,
 	}
 
@@ -68,6 +81,7 @@ func createSignedTransaction(issuerAddr string, trustingAccount horizon.Account)
 			Operations: []txnbuild.Operation{
 				&createAccountOp,
 				&op,
+				&sendAssetsOp,
 			},
 			BaseFee:       txnbuild.MinBaseFee,
 			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()}, // Use a real timeout in production!
@@ -80,7 +94,7 @@ func createSignedTransaction(issuerAddr string, trustingAccount horizon.Account)
 
 	signer := getTrustingAccountKeypair()
 
-	return tx.Sign(network.TestNetworkPassphrase, signer)
+	return tx.Sign(network.TestNetworkPassphrase, signer, issuerKeypair)
 }
 
 func main() {
@@ -94,7 +108,7 @@ func main() {
 		return
 	}
 
-	transaction, err := createSignedTransaction(issuer.Address(), trustingAcc)
+	transaction, err := createSignedTransaction(issuer, trustingAcc)
 
 	if err != nil {
 		log.Println("error creating change trust transaction", err)
